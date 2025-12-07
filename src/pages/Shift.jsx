@@ -3,31 +3,56 @@ import { Table, Button, Tag, Space, message, Modal, Form, Input, TimePicker, Pop
 import { PlusOutlined, ReloadOutlined, ClockCircleOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom'; // ✅ 1. Thêm cái này để chuyển trang
 
 const Shift = () => {
   const [data, setData] = useState([]); 
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false); 
+  const [editingId, setEditingId] = useState(null);
   
-  // State để biết đang Thêm hay Sửa
-  const [editingId, setEditingId] = useState(null); 
   const [form] = Form.useForm(); 
+  const navigate = useNavigate(); // ✅ 2. Khởi tạo
 
   const apiUrl = 'https://emsbackend-enh5aahkg4dcfkfs.southeastasia-01.azurewebsites.net/api/v1/shifts';
 
+  // ✅ 3. Hàm lấy Token an toàn (Giống trang Nhân viên)
+  const getToken = () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      message.error('Hết phiên đăng nhập!');
+      navigate('/');
+      return null;
+    }
+    return token;
+  };
+
   // --- 1. LẤY DANH SÁCH ---
   const fetchShifts = async () => {
+    const token = getToken();
+    if (!token) return;
+
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
       const response = await axios.get(apiUrl, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Backend có thể trả về mảng trực tiếp hoặc trong .data
-      setData(Array.isArray(response.data) ? response.data : []); 
+      
+      console.log("Dữ liệu Ca làm:", response.data);
+      
+      // Xử lý an toàn: Lấy mảng dữ liệu dù nó nằm ở đâu
+      // Backend có thể trả về [..] hoặc { data: [..] }
+      const realData = Array.isArray(response.data) ? response.data : (response.data.data || []);
+      setData(realData); 
+
     } catch (error) {
       console.error(error);
-      message.error('Lỗi tải dữ liệu ca làm!');
+      if (error.response && error.response.status === 401) {
+         message.error('Token lỗi/Hết hạn. Vui lòng đăng nhập lại.');
+         navigate('/');
+      } else {
+         message.error('Lỗi tải dữ liệu ca làm!');
+      }
     } finally {
       setLoading(false);
     }
@@ -37,72 +62,63 @@ const Shift = () => {
     fetchShifts();
   }, []);
 
-  // --- 2. BẤM NÚT THÊM MỚI ---
+  // --- 2. THÊM / SỬA ---
   const handleAdd = () => {
     setEditingId(null);
     form.resetFields();
     setIsModalOpen(true);
   };
 
-  // --- 3. BẤM NÚT SỬA (QUAN TRỌNG: XỬ LÝ GIỜ) ---
   const handleEdit = (record) => {
     setEditingId(record._id);
-    
-    // Ant Design TimePicker bắt buộc dùng dayjs object, không nhận string "08:00"
+    // QUAN TRỌNG: Chuyển chuỗi "08:00" thành đối tượng Dayjs để TimePicker hiểu
     form.setFieldsValue({
         ...record,
-        // Chuyển chuỗi "HH:mm" thành đối tượng thời gian
+        // Backend trả về 'shiftName', ta map vào form
+        shiftName: record.shiftName || record.name, 
         startTime: record.startTime ? dayjs(record.startTime, 'HH:mm') : null,
         endTime: record.endTime ? dayjs(record.endTime, 'HH:mm') : null,
     });
-    
     setIsModalOpen(true);
   };
 
-  // --- 4. LƯU DỮ LIỆU (POST/PUT) ---
   const handleOk = () => {
     form.validateFields().then(async (values) => {
+      const token = getToken();
+      if (!token) return;
+
       try {
-        const token = localStorage.getItem('token');
         const config = { headers: { Authorization: `Bearer ${token}` } };
         
-        // Chuyển đổi ngược lại từ TimePicker (dayjs) sang chuỗi "HH:mm" để gửi cho Backend
+        // QUAN TRỌNG: Chuyển ngược từ TimePicker về chuỗi "HH:mm" để gửi lên Server
         const payload = {
-            shiftName: values.shiftName, // Backend dùng shiftName
+            shiftName: values.shiftName,
             startTime: values.startTime ? values.startTime.format('HH:mm') : null,
             endTime: values.endTime ? values.endTime.format('HH:mm') : null,
-            // Thêm giá trị mặc định cho các trường bắt buộc khác (nếu có)
-            branchId: '654ab...', // Tạm thời hardcode hoặc bỏ qua nếu backend không bắt buộc
         };
 
         if (editingId) {
-            // SỬA
             await axios.put(`${apiUrl}/${editingId}`, payload, config);
             message.success('Cập nhật thành công!');
         } else {
-            // THÊM
             await axios.post(apiUrl, payload, config);
             message.success('Thêm mới thành công!');
         }
-
         setIsModalOpen(false);
-        form.resetFields();
-        fetchShifts(); 
-
+        fetchShifts();
       } catch (error) {
         console.error(error);
-        message.error('Lỗi khi lưu! (Kiểm tra dữ liệu nhập)');
+        message.error('Lỗi khi lưu! Kiểm tra lại dữ liệu.');
       }
     });
   };
 
-  // --- 5. XÓA ---
+  // --- 3. XÓA ---
   const handleDelete = async (id) => {
+    const token = getToken();
+    if (!token) return;
     try {
-        const token = localStorage.getItem('token');
-        await axios.delete(`${apiUrl}/${id}`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
+        await axios.delete(`${apiUrl}/${id}`, { headers: { Authorization: `Bearer ${token}` } });
         message.success('Đã xóa ca làm!');
         fetchShifts();
     } catch (error) {
@@ -110,13 +126,13 @@ const Shift = () => {
     }
   };
 
-  // --- CẤU HÌNH CỘT ---
   const columns = [
     { 
       title: 'Tên Ca', 
-      dataIndex: 'shiftName', // ✅ Sửa thành shiftName cho khớp seed.ts
+      dataIndex: 'shiftName', 
       key: 'shiftName', 
-      render: (text) => <b>{text}</b> 
+      // Phòng hờ backend trả về tên biến khác (name hoặc shiftName)
+      render: (text, record) => <b>{text || record.name}</b> 
     },
     { 
       title: 'Giờ Bắt Đầu', 
@@ -136,11 +152,7 @@ const Shift = () => {
       render: (_, record) => (
         <Space size="middle">
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>Sửa</Button>
-          <Popconfirm 
-            title="Bạn có chắc muốn xóa?" 
-            onConfirm={() => handleDelete(record._id)}
-            okText="Xóa" cancelText="Hủy"
-          >
+          <Popconfirm title="Chắc chắn xóa?" onConfirm={() => handleDelete(record._id)}>
              <Button type="link" danger icon={<DeleteOutlined />}>Xóa</Button>
           </Popconfirm>
         </Space>
@@ -154,28 +166,19 @@ const Shift = () => {
         <h2>Quản lý Ca làm việc</h2>
         <Space>
             <Button icon={<ReloadOutlined />} onClick={fetchShifts}>Tải lại</Button>
-            {/* Sửa onClick thành handleAdd */}
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-              Thêm ca làm
-            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Thêm ca làm</Button>
         </Space>
       </div>
       
       <Table columns={columns} dataSource={data} loading={loading} rowKey="_id" />
 
-      {/* --- POPUP --- */}
       <Modal 
         title={editingId ? "Cập nhật Ca làm" : "Thêm Ca làm mới"} 
-        open={isModalOpen} 
-        onOk={handleOk} 
-        onCancel={() => setIsModalOpen(false)}
-        okText="Lưu lại"
-        cancelText="Hủy bỏ"
+        open={isModalOpen} onOk={handleOk} onCancel={() => setIsModalOpen(false)}
+        okText="Lưu" cancelText="Hủy"
       >
-        <Form form={form} layout="vertical" name="form_shift">
-          
-          {/* ✅ Sửa name thành shiftName */}
-          <Form.Item name="shiftName" label="Tên Ca" rules={[{ required: true, message: 'Vui lòng nhập tên ca!' }]}>
+        <Form form={form} layout="vertical">
+          <Form.Item name="shiftName" label="Tên Ca" rules={[{ required: true, message: 'Nhập tên ca!' }]}>
             <Input prefix={<ClockCircleOutlined />} placeholder="Ví dụ: Ca Sáng" />
           </Form.Item>
 
@@ -188,7 +191,6 @@ const Shift = () => {
               <TimePicker format="HH:mm" placeholder="17:00" />
             </Form.Item>
           </Space>
-
         </Form>
       </Modal>
     </div>

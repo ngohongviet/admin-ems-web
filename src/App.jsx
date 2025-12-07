@@ -5,9 +5,12 @@ import MainLayout from './MainLayout';
 import Dashboard from './pages/Dashboard';
 import Employee from './pages/Employee';
 import Branch from './pages/Branch';
-import Shift from './pages/Shift'; 
+import Shift from './pages/Shift';
+import Chat from './pages/Chat';
+import Schedule from './pages/Schedule';
+import Profile from './pages/Profile'; // ✅ 1. Nhớ Import file này
 
-// Component bảo vệ (giữ nguyên nếu bạn đã có)
+// Component bảo vệ (giữ nguyên)
 const ProtectedRoute = ({ children }) => {
   const token = localStorage.getItem('token');
   if (!token) {
@@ -19,13 +22,11 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   return (
     <BrowserRouter>
-      {/* --- BẮT ĐẦU CỤM ROUTES (QUAN TRỌNG) --- */}
       <Routes>
-        
         {/* Trang Login */}
         <Route path="/" element={<Login />} />
 
-        {/* Các trang Admin */}
+        {/* Cụm trang Admin (Có Menu bên trái) */}
         <Route
           element={
             <ProtectedRoute>
@@ -37,10 +38,18 @@ function App() {
           <Route path="/employees" element={<Employee />} />
           <Route path="/branches" element={<Branch />} />
           <Route path="/shifts" element={<Shift />} />
+          <Route path="/chat" element={<Chat />} />
+          <Route path="/schedule" element={<Schedule />} />
+          
+          {/* ✅ 2. THÊM DÒNG NÀY VÀO ĐÂY */}
+          <Route path="/profile" element={<Profile />} /> 
+
         </Route>
 
-      </Routes> 
-      {/* --- KẾT THÚC CỤM ROUTES (Bạn hay bị thiếu cái này) --- */}
+        {/* Nếu gõ linh tinh thì đá về Login */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+
+      </Routes>
     </BrowserRouter>
   );
 }
