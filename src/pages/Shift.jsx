@@ -1,38 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Space, message, Modal, Form, Input, TimePicker } from 'antd';
-import { PlusOutlined, ReloadOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { Table, Button, Tag, Space, message, Modal, Form, Input, TimePicker, Popconfirm } from 'antd';
+import { PlusOutlined, ReloadOutlined, ClockCircleOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
-import dayjs from 'dayjs'; // Thư viện xử lý giờ giấc
+import dayjs from 'dayjs';
 
 const Shift = () => {
-  // --- STATE ---
   const [data, setData] = useState([]); 
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false); 
+  
+  // State để biết đang Thêm hay Sửa
+  const [editingId, setEditingId] = useState(null); 
   const [form] = Form.useForm(); 
 
-  // --- HÀM 1: LẤY DANH SÁCH CA LÀM ---
+  const apiUrl = 'https://emsbackend-enh5aahkg4dcfkfs.southeastasia-01.azurewebsites.net/api/v1/shifts';
+
+  // --- 1. LẤY DANH SÁCH ---
   const fetchShifts = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('https://emsbackend-enh5aahkg4dcfkfs.southeastasia-01.azurewebsites.net/api/v1/shifts', {
+      const response = await axios.get(apiUrl, {
         headers: { Authorization: `Bearer ${token}` }
       });
-
-      console.log("Dữ liệu Ca làm:", response.data);
-      setData(response.data); 
-      message.success('Đã tải xong danh sách ca!');
-
+      // Backend có thể trả về mảng trực tiếp hoặc trong .data
+      setData(Array.isArray(response.data) ? response.data : []); 
     } catch (error) {
       console.error(error);
       message.error('Lỗi tải dữ liệu ca làm!');
-      // Dữ liệu mẫu demo
-      setData([
-        { _id: '1', name: 'Ca Sáng', startTime: '08:00', endTime: '12:00' },
-        { _id: '2', name: 'Ca Chiều', startTime: '13:00', endTime: '17:00' },
-        { _id: '3', name: 'Ca Tối', startTime: '18:00', endTime: '22:00' },
-      ]);
     } finally {
       setLoading(false);
     }
@@ -42,44 +37,85 @@ const Shift = () => {
     fetchShifts();
   }, []);
 
-  // --- HÀM 2: THÊM CA LÀM MỚI ---
+  // --- 2. BẤM NÚT THÊM MỚI ---
+  const handleAdd = () => {
+    setEditingId(null);
+    form.resetFields();
+    setIsModalOpen(true);
+  };
+
+  // --- 3. BẤM NÚT SỬA (QUAN TRỌNG: XỬ LÝ GIỜ) ---
+  const handleEdit = (record) => {
+    setEditingId(record._id);
+    
+    // Ant Design TimePicker bắt buộc dùng dayjs object, không nhận string "08:00"
+    form.setFieldsValue({
+        ...record,
+        // Chuyển chuỗi "HH:mm" thành đối tượng thời gian
+        startTime: record.startTime ? dayjs(record.startTime, 'HH:mm') : null,
+        endTime: record.endTime ? dayjs(record.endTime, 'HH:mm') : null,
+    });
+    
+    setIsModalOpen(true);
+  };
+
+  // --- 4. LƯU DỮ LIỆU (POST/PUT) ---
   const handleOk = () => {
     form.validateFields().then(async (values) => {
       try {
         const token = localStorage.getItem('token');
+        const config = { headers: { Authorization: `Bearer ${token}` } };
         
-        // Chuẩn bị dữ liệu: Chuyển đổi giờ từ TimePicker sang chuỗi "HH:mm" (Ví dụ: "08:00")
+        // Chuyển đổi ngược lại từ TimePicker (dayjs) sang chuỗi "HH:mm" để gửi cho Backend
         const payload = {
-            name: values.name,
-            startTime: values.startTime.format('HH:mm'),
-            endTime: values.endTime.format('HH:mm'),
+            shiftName: values.shiftName, // Backend dùng shiftName
+            startTime: values.startTime ? values.startTime.format('HH:mm') : null,
+            endTime: values.endTime ? values.endTime.format('HH:mm') : null,
+            // Thêm giá trị mặc định cho các trường bắt buộc khác (nếu có)
+            branchId: '654ab...', // Tạm thời hardcode hoặc bỏ qua nếu backend không bắt buộc
         };
 
-        // Gọi API
-        await axios.post('https://emsbackend-enh5aahkg4dcfkfs.southeastasia-01.azurewebsites.net/api/v1/shifts', payload, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
+        if (editingId) {
+            // SỬA
+            await axios.put(`${apiUrl}/${editingId}`, payload, config);
+            message.success('Cập nhật thành công!');
+        } else {
+            // THÊM
+            await axios.post(apiUrl, payload, config);
+            message.success('Thêm mới thành công!');
+        }
 
-        message.success('Thêm ca làm thành công!');
         setIsModalOpen(false);
         form.resetFields();
         fetchShifts(); 
 
       } catch (error) {
         console.error(error);
-        message.error('Lỗi khi thêm ca làm!');
+        message.error('Lỗi khi lưu! (Kiểm tra dữ liệu nhập)');
       }
-    }).catch((info) => {
-      console.log('Validate Failed:', info);
     });
+  };
+
+  // --- 5. XÓA ---
+  const handleDelete = async (id) => {
+    try {
+        const token = localStorage.getItem('token');
+        await axios.delete(`${apiUrl}/${id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        message.success('Đã xóa ca làm!');
+        fetchShifts();
+    } catch (error) {
+        message.error('Xóa thất bại!');
+    }
   };
 
   // --- CẤU HÌNH CỘT ---
   const columns = [
     { 
       title: 'Tên Ca', 
-      dataIndex: 'name', 
-      key: 'name', 
+      dataIndex: 'shiftName', // ✅ Sửa thành shiftName cho khớp seed.ts
+      key: 'shiftName', 
       render: (text) => <b>{text}</b> 
     },
     { 
@@ -99,8 +135,14 @@ const Shift = () => {
       key: 'action',
       render: (_, record) => (
         <Space size="middle">
-          <a style={{ color: 'blue' }}>Sửa</a>
-          <a style={{ color: 'red' }}>Xóa</a>
+          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>Sửa</Button>
+          <Popconfirm 
+            title="Bạn có chắc muốn xóa?" 
+            onConfirm={() => handleDelete(record._id)}
+            okText="Xóa" cancelText="Hủy"
+          >
+             <Button type="link" danger icon={<DeleteOutlined />}>Xóa</Button>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -112,7 +154,8 @@ const Shift = () => {
         <h2>Quản lý Ca làm việc</h2>
         <Space>
             <Button icon={<ReloadOutlined />} onClick={fetchShifts}>Tải lại</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>
+            {/* Sửa onClick thành handleAdd */}
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
               Thêm ca làm
             </Button>
         </Space>
@@ -120,9 +163,9 @@ const Shift = () => {
       
       <Table columns={columns} dataSource={data} loading={loading} rowKey="_id" />
 
-      {/* --- POPUP THÊM CA LÀM --- */}
+      {/* --- POPUP --- */}
       <Modal 
-        title="Thêm Ca làm việc mới" 
+        title={editingId ? "Cập nhật Ca làm" : "Thêm Ca làm mới"} 
         open={isModalOpen} 
         onOk={handleOk} 
         onCancel={() => setIsModalOpen(false)}
@@ -131,7 +174,8 @@ const Shift = () => {
       >
         <Form form={form} layout="vertical" name="form_shift">
           
-          <Form.Item name="name" label="Tên Ca" rules={[{ required: true, message: 'Vui lòng nhập tên ca!' }]}>
+          {/* ✅ Sửa name thành shiftName */}
+          <Form.Item name="shiftName" label="Tên Ca" rules={[{ required: true, message: 'Vui lòng nhập tên ca!' }]}>
             <Input prefix={<ClockCircleOutlined />} placeholder="Ví dụ: Ca Sáng" />
           </Form.Item>
 
@@ -150,8 +194,5 @@ const Shift = () => {
     </div>
   );
 };
-
-// Import Tag từ antd (nếu quên)
-import { Tag } from 'antd'; 
 
 export default Shift;
